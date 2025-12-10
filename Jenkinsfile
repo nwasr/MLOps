@@ -12,22 +12,22 @@ pipeline {
         }
         stage('Lint Code') {
             steps {
-                // Lint code
                 script {
                     echo 'Linting Python Code...'
-                    //create venv
                     sh """
                         python3 -m venv venv
                         . venv/bin/activate
                         pip install --upgrade pip
                         pip install -r requirements.txt
+
+                        pylint app.py train.py --output=pylint-report.txt --exit-zero
+                        flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt
+                        black app.py train.py
                     """
-                    sh "pylint app.py train.py --output=pylint-report.txt --exit-zero"
-                    sh "flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt" //E501 line too long and E302 2 blank lines. safe to ignore
-                    sh "black app.py train.py"
                 }
             }
         }
+
         stage('Test Code') {
             steps {
                 // Pytest code
