@@ -1,2 +1,2 @@
-# MLOps01
+# MLOps Project
 
