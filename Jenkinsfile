@@ -60,6 +60,7 @@ pipeline {
             steps {
                 script {
                     echo 'Building Docker Image...'
+                    docker.build("mlops-app-01")
                     // Example:
                     // sh "docker build -t your-image:latest ."
                 }
