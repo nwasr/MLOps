@@ -49,7 +49,7 @@ pipeline {
             steps {
                 script {
                     echo 'Scanning filesystem with Trivy...'
-                    sh "trivy fs --format table -o trivy-fs-report.html ."
+                    sh "trivy fs --format table -o trivy-fs-report.txt ."
                     // If trivy installed on host, leave as is
                     // sh "trivy fs --exit-code 1 --severity HIGH,CRITICAL ."
                 }
@@ -71,7 +71,7 @@ pipeline {
             steps {
                 script {
                     echo 'Scanning Docker Image with Trivy...'
-                    sh "trivy image mlops-app-01:latest --format table --output trivy-image-report.html"
+                    sh "trivy image mlops-app-01:latest --format table --output trivy-image-report.txt"
 
                     // Example:
                     // sh "trivy image your-image:latest"
