@@ -49,9 +49,12 @@ pipeline {
             steps {
                 script {
                     echo 'Scanning filesystem with Trivy...'
-                    sh "trivy fs --format table -o trivy-fs-report.txt ."
-                    // If trivy installed on host, leave as is
-                    // sh "trivy fs --exit-code 1 --severity HIGH,CRITICAL ."
+                    sh """
+                        trivy fs . \
+                          --severity HIGH,CRITICAL \
+                          --format json \
+                          --output trivy-fs-report.json
+                    """
                 }
             }
         }
@@ -61,8 +64,6 @@ pipeline {
                 script {
                     echo 'Building Docker Image...'
                     docker.build("mlops-app-01")
-                    // Example:
-                    // sh "docker build -t your-image:latest ."
                 }
             }
         }
@@ -71,10 +72,12 @@ pipeline {
             steps {
                 script {
                     echo 'Scanning Docker Image with Trivy...'
-                    sh "trivy image mlops-app-01:latest --format table --output trivy-image-report.txt"
-
-                    // Example:
-                    // sh "trivy image your-image:latest"
+                    sh """
+                        trivy image mlops-app-01:latest \
+                          --severity HIGH,CRITICAL \
+                          --format json \
+                          --output trivy-image-report.json
+                    """
                 }
             }
         }
@@ -83,11 +86,7 @@ pipeline {
             steps {
                 script {
                     echo 'Pushing Docker Image to DockerHub...'
-                    // Example:
-                    // withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                    //     sh "echo $PASS | docker login -u $USER --password-stdin"
-                    //     sh "docker push your-image:latest"
-                    // }
+                    // add docker login + push here when ready
                 }
             }
         }
@@ -98,6 +97,13 @@ pipeline {
                     echo 'Deploying to production...'
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            echo 'Archiving reports...'
+            archiveArtifacts artifacts: '*report*.txt, trivy-*.json', allowEmptyArchive: true
         }
     }
 }
