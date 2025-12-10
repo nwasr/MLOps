@@ -1,28 +1,36 @@
 pipeline {
     agent any
+
     stages {
+
         stage('Clone Repository') {
             steps {
-                // Clone Repository
                 script {
                     echo 'Cloning GitHub Repository...'
-                    checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[credentialsId: 'mlops-git-token', url: 'https://github.com/nwasr/MLOps.git']])
+                    checkout scmGit(
+                        branches: [[name: '*/main']],
+                        extensions: [],
+                        userRemoteConfigs: [[
+                            credentialsId: 'mlops-git-token',
+                            url: 'https://github.com/nwasr/MLOps.git'
+                        ]]
+                    )
                 }
             }
         }
+
         stage('Lint Code') {
             steps {
                 script {
                     echo 'Linting Python Code...'
                     sh """
                         python3 -m venv venv
-                        . venv/bin/activate
-                        pip install --upgrade pip
-                        pip install -r requirements.txt
+                        venv/bin/pip install --upgrade pip
+                        venv/bin/pip install -r requirements.txt
 
-                        pylint app.py train.py --output=pylint-report.txt --exit-zero
-                        flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt
-                        black app.py train.py
+                        venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero
+                        venv/bin/flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt
+                        venv/bin/black app.py train.py
                     """
                 }
             }
@@ -30,53 +38,62 @@ pipeline {
 
         stage('Test Code') {
             steps {
-                // Pytest code
                 script {
                     echo 'Testing Python Code...'
-                    sh "pytest tests/"
+                    sh "venv/bin/pytest tests/"
                 }
             }
         }
+
         stage('Trivy FS Scan') {
             steps {
-                // Trivy Filesystem Scan
                 script {
-                    echo 'Scannning Filesystem with Trivy...'
+                    echo 'Scanning filesystem with Trivy...'
+                    // If trivy installed on host, leave as is
+                    // sh "trivy fs --exit-code 1 --severity HIGH,CRITICAL ."
                 }
             }
         }
+
         stage('Build Docker Image') {
             steps {
-                // Build Docker Image
                 script {
                     echo 'Building Docker Image...'
+                    // Example:
+                    // sh "docker build -t your-image:latest ."
                 }
             }
         }
+
         stage('Trivy Docker Image Scan') {
             steps {
-                // Trivy Docker Image Scan
                 script {
                     echo 'Scanning Docker Image with Trivy...'
+                    // Example:
+                    // sh "trivy image your-image:latest"
                 }
             }
         }
+
         stage('Push Docker Image') {
             steps {
-                // Push Docker Image to DockerHub
                 script {
                     echo 'Pushing Docker Image to DockerHub...'
-                    
+                    // Example:
+                    // withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    //     sh "echo $PASS | docker login -u $USER --password-stdin"
+                    //     sh "docker push your-image:latest"
+                    // }
                 }
             }
         }
+
         stage('Deploy') {
             steps {
-                // Deploy Image to Amazon ECS
                 script {
                     echo 'Deploying to production...'
-                    }
                 }
             }
         }
     }
+}
