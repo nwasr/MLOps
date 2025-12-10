@@ -15,6 +15,7 @@ pipeline {
                 // Lint code
                 script {
                     echo 'Linting Python Code...'
+                    sh "python --version"
                 }
             }
         }
