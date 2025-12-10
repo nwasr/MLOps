@@ -49,6 +49,7 @@ pipeline {
             steps {
                 script {
                     echo 'Scanning filesystem with Trivy...'
+                    sh "trivy fs --format table -o trivy-fs-report.html"
                     // If trivy installed on host, leave as is
                     // sh "trivy fs --exit-code 1 --severity HIGH,CRITICAL ."
                 }
