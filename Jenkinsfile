@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'
-    DOCKERHUB_REGISTRY      = ''   // use default (Docker Hub)
+    DOCKERHUB_REGISTRY      = 'pep34' 
     DOCKERHUB_REPOSITORY    = 'pep34/mlops-proj-01'
     K8S_MANIFEST_DIR        = 'k8s' // directory in repo containing namespace/deploy/service/hpa YAMLs
     // optional: KUBECONFIG_CREDENTIAL should be Jenkins "Secret file" credential id that contains kubeconfig
