@@ -14,8 +14,8 @@ pipeline {
     }
     stage('Lint & Test') {
       steps {
-        sh "python -m pip install --upgrade pip"
-        sh "python -m pip install -r requirements.txt"
+        sh "python3 -m pip install --upgrade pip"
+        sh "python3 -m pip install -r requirements.txt"
         sh "pylint app.py train.py --output=pylint-report.txt --exit-zero || true"
         sh "flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt || true"
         sh "black --check . || true"
@@ -25,8 +25,8 @@ pipeline {
     stage('Train Model') {
       steps {
         echo 'Training model inside CI workspace...'
-        sh "python -m pip install -r requirements.txt"
-        sh "python train.py"
+        sh "python3 -m pip install -r requirements.txt"
+        sh "python3 train.py"
         archiveArtifacts artifacts: 'model/iris_model.pkl', fingerprint: true
       }
     }
