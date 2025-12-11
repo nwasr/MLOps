@@ -2,11 +2,16 @@ pipeline {
   agent any
 
   environment {
-    DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'   // your Docker Hub credentials in Jenkins
+    DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'   // username/password creds
     DOCKERHUB_REGISTRY = 'https://registry.hub.docker.com'
     DOCKERHUB_REPOSITORY = 'pep34/mlops-proj-01'
     GIT_CREDENTIALS = 'mlops-git-token'
-    KUBECONFIG_CREDENTIAL_ID = 'mlops-kubeconfig'              // kubeconfig stored as Jenkins secret file
+    KUBECONFIG_CREDENTIAL_ID = 'mlops-kubeconfig'              // kubeconfig stored as File credential
+  }
+
+  options {
+    ansiColor('xterm')
+    timestamps()
   }
 
   stages {
@@ -14,7 +19,7 @@ pipeline {
     stage('Clone Repository') {
       steps {
         script {
-          echo 'Cloning GitHub Repository...'
+          echo 'Cloning repository...'
           checkout scmGit(
             branches: [[name: '*/main']],
             userRemoteConfigs: [[
@@ -26,10 +31,10 @@ pipeline {
       }
     }
 
-    stage('Lint & Setup venv') {
+    stage('Lint - Setup venv & Lint') {
       steps {
         script {
-          echo 'Linting Python Code & preparing virtualenv...'
+          echo 'Setting up venv and linting...'
           sh '''
             set -euo pipefail
             python3 -m venv venv
@@ -37,22 +42,23 @@ pipeline {
             venv/bin/pip install --upgrade pip
             venv/bin/pip install -r requirements.txt || true
 
+            # Run linters, but don't fail pipeline on style issues
             venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero || true
             venv/bin/flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt || true
-            venv/bin/black --check app.py train.py || true
+            venv/bin/black --check app.py train.py || true || true
           '''
         }
       }
     }
 
-    stage('Run Tests') {
+    stage('Unit Tests') {
       steps {
         script {
           echo 'Running unit tests (pytest)...'
           sh '''
             set -euo pipefail
             . venv/bin/activate
-            venv/bin/pytest tests/ || true
+            venv/bin/pytest --junitxml=tests/junit-report.xml tests/ || true
           '''
         }
       }
@@ -61,7 +67,7 @@ pipeline {
     stage('Trivy FS Scan') {
       steps {
         script {
-          echo 'Scanning filesystem with Trivy (HIGH/CRITICAL)...'
+          echo 'Running Trivy filesystem scan (HIGH/CRITICAL)...'
           sh '''
             set -euo pipefail
             trivy fs . --severity HIGH,CRITICAL --format json --output trivy-fs-report.json || true
@@ -77,44 +83,41 @@ pipeline {
           sh '''
             set -euo pipefail
             GIT_SHORT=$(git rev-parse --short HEAD)
-            export IMAGE_TAG="${BUILD_NUMBER}-${GIT_SHORT}"
-            export FULL_IMAGE="${DOCKERHUB_REPOSITORY}:${IMAGE_TAG}"
-            echo "IMAGE_TAG=${IMAGE_TAG}"
-            echo "FULL_IMAGE=${FULL_IMAGE}"
+            IMAGE_TAG="${BUILD_NUMBER}-${GIT_SHORT}"
+            FULL_IMAGE="${DOCKERHUB_REPOSITORY}:${IMAGE_TAG}"
+            echo "IMAGE_TAG=${IMAGE_TAG}" > build-image-vars.txt
+            echo "FULL_IMAGE=${FULL_IMAGE}" >> build-image-vars.txt
+            echo "Building ${FULL_IMAGE}..."
             docker build -t "${FULL_IMAGE}" .
-            # expose envs to the rest of pipeline
-            echo "FULL_IMAGE=${FULL_IMAGE}" > build-image-vars.txt
-            echo "IMAGE_TAG=${IMAGE_TAG}" >> build-image-vars.txt
           '''
         }
       }
     }
 
-    stage('Trivy Docker Image Scan') {
+    stage('Trivy Image Scan') {
       steps {
         script {
-          echo 'Scanning built image with Trivy (image scan)...'
+          echo 'Scanning built image with Trivy...'
           sh '''
             set -euo pipefail
-            # load vars
             source build-image-vars.txt
+            trivy image "${FULL_IMAGE}" --severity HIGH,CRITICAL --format json --output trivy-image-report.json || true
             trivy image "${FULL_IMAGE}" --format table -o trivy-image-report.txt || true
           '''
         }
       }
     }
 
-    stage('Push Docker Image') {
+    stage('Push Image') {
       steps {
         script {
-          echo 'Pushing Docker image to Docker Hub...'
-          withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDENTIAL_ID}", passwordVariable: 'DOCKERHUB_PSW', usernameVariable: 'DOCKERHUB_USER')]) {
+          echo 'Pushing image to Docker Hub...'
+          withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDENTIAL_ID}", usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PSW')]) {
             sh '''
               set -euo pipefail
               source build-image-vars.txt
               echo "${DOCKERHUB_PSW}" | docker login -u "${DOCKERHUB_USER}" --password-stdin "${DOCKERHUB_REGISTRY#https://}" || true
               docker push "${FULL_IMAGE}"
-              # also push :latest (optional)
               docker tag "${FULL_IMAGE}" "${DOCKERHUB_REPOSITORY}:latest" || true
               docker push "${DOCKERHUB_REPOSITORY}:latest" || true
             '''
@@ -126,16 +129,16 @@ pipeline {
     stage('Deploy to Kubernetes') {
       steps {
         script {
-          echo 'Deploying to Kubernetes (safe image substitution)...'
+          echo 'Deploying to Kubernetes (apply manifests + set image)...'
           withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL_ID}", variable: 'KUBECONFIG_FILE')]) {
             sh '''
               set -euo pipefail
               export KUBECONFIG="$KUBECONFIG_FILE"
-
-              # load image variables
               source build-image-vars.txt
+
+              # sanity
               if [ -z "${IMAGE_TAG:-}" ]; then
-                echo "ERROR: IMAGE_TAG is empty"; exit 1
+                echo "ERROR: IMAGE_TAG empty"; exit 1
               fi
               echo "Deploying image: ${FULL_IMAGE}"
 
@@ -144,25 +147,17 @@ pipeline {
                 kubectl apply -f k8s-deploy/namespace.yaml
               fi
 
-              # create a temp deployment manifest with the real image (avoid leaving placeholder in live cluster)
-              tmpdir=$(mktemp -d)
-              trap 'rm -rf "$tmpdir"' EXIT
-
-              # safely replace the placeholder using '|' as sed delimiter so slashes/colons don't break it
-              sed "s|IMAGE_REPLACE|${FULL_IMAGE}|g" k8s-deploy/deployment.yaml > "$tmpdir/deployment.yaml"
-
-              # apply the deployment (using the manifest with correct image)
-              kubectl apply -f "$tmpdir/deployment.yaml"
-
-              # apply other manifests (service, hpa, etc.) - these will be idempotent
-              # apply everything under k8s-deploy to pick up service/hpa; it's fine to reapply deployment too
+              # apply non-deployment manifests (service/hpa). If your deployment is in the same dir, it's fine to reapply.
               kubectl apply -f k8s-deploy/ --recursive || true
 
-              # show what image is currently used by the deployment (debug)
-              echo "Deployment image now:"
+              # NOW atomically set image so the Deployment uses a valid image (prevents IMAGE_REPLACE issues)
+              kubectl set image deployment/mlops-app mlops-app="${FULL_IMAGE}" -n mlops --record
+
+              # verify the deployment's image (debug)
+              echo "Deployment now using:"
               kubectl get deployment mlops-app -n mlops -o=jsonpath='{.spec.template.spec.containers[0].image}'; echo
 
-              # wait for rollout (increase timeout if your app starts slowly)
+              # wait for rollout
               kubectl rollout status deployment/mlops-app -n mlops --timeout=300s
             '''
           }
@@ -174,18 +169,18 @@ pipeline {
 
   post {
     always {
-      echo 'Archiving reports and build vars...'
+      echo 'Archiving artifacts and test results...'
       archiveArtifacts artifacts: 'pylint-report.txt, flake8-report.txt, trivy-*.json, trivy-*.txt, build-image-vars.txt', allowEmptyArchive: true
-      junit allowEmptyResults: true, testResults: 'tests/**/test-*.xml'
+      junit allowEmptyResults: true, testResults: 'tests/**/junit-report.xml'
     }
     success {
-      script { 
-        def fullImage = readFile('build-image-vars.txt').split('\n').find { it.startsWith('FULL_IMAGE=') }?.split('=')[1] ?: "${DOCKERHUB_REPOSITORY}:latest"
-        echo "Pipeline completed successfully. Deployed image: ${fullImage}"
+      script {
+        def full = readFile('build-image-vars.txt').split('\n').find{ it.startsWith('FULL_IMAGE=') }?.split('=')[1] ?: "${DOCKERHUB_REPOSITORY}:latest"
+        echo "Pipeline succeeded — Deployed: ${full}"
       }
     }
     failure {
-      echo 'Pipeline failed — check console output for errors.'
+      echo 'Pipeline failed — check console logs'
     }
   }
 }
