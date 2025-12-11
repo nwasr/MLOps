@@ -2,11 +2,10 @@ pipeline {
   agent any
 
   environment {
-    // set the registry explicitly so Groovy won't complain
     DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'
-    DOCKERHUB_REGISTRY      = 'https://registry.hub.docker.com' // <- explicit
+    DOCKERHUB_REGISTRY      = 'https://registry.hub.docker.com'
     DOCKERHUB_REPOSITORY    = 'pep34/mlops-proj-01'
-    KUBECONFIG_CREDENTIAL   = 'kubeconfig-cred' // optional
+    KUBECONFIG_CREDENTIAL   = 'kubeconfig-cred' // optional: secret file credential id containing kubeconfig
   }
 
   stages {
@@ -19,12 +18,8 @@ pipeline {
         script {
           echo 'Building Docker Image...'
           def imageName = "${env.DOCKERHUB_REPOSITORY}:latest"
-          // build and keep local reference
           def built = docker.build(imageName)
-          // publish image name to env for later stages
           env.IMAGE_TAG = imageName
-          // store reference in a local variable to avoid implicit field creation
-          // (we won't try to use 'built' across steps; we'll re-create the reference when pushing)
         }
       }
     }
@@ -33,9 +28,7 @@ pipeline {
       steps {
         script {
           echo "Pushing ${env.IMAGE_TAG} to Docker Hub..."
-          // Use env.* when referencing env vars in Groovy
           docker.withRegistry("${env.DOCKERHUB_REGISTRY}", "${env.DOCKERHUB_CREDENTIAL_ID}") {
-            // create image handle and push
             docker.image(env.IMAGE_TAG).push()
             docker.image(env.IMAGE_TAG).push("${env.BUILD_NUMBER}")
           }
@@ -46,26 +39,80 @@ pipeline {
     stage('Deploy to Kubernetes') {
       steps {
         script {
-          // use kubeconfig cred if present, else assume kubectl configured
-          if (fileExists("${env.WORKSPACE}/.kube/config")) {
-            echo "Found kube config in workspace"
-          } else {
-            echo "If you need a kubeconfig from Jenkins credentials, set KUBECONFIG_CREDENTIAL and uncomment code below."
+          // If you have a kubeconfig stored as a Jenkins "Secret file" credential,
+          // set KUBECONFIG_CREDENTIAL to its id. We'll use it if available.
+          try {
+            withCredentials([file(credentialsId: "${env.KUBECONFIG_CREDENTIAL}", variable: 'KUBECONFIG_FILE')]) {
+              if (fileExists(env.KUBECONFIG_FILE)) {
+                env.KUBECONFIG = env.KUBECONFIG_FILE
+                echo "Using kubeconfig from Jenkins credential ${env.KUBECONFIG_CREDENTIAL}"
+              } else {
+                echo "kubeconfig credential not found on agent; assuming kubectl already configured."
+              }
+            }
+          } catch (e) {
+            echo "No kubeconfig credential bound (KUBECONFIG_CREDENTIAL). Assuming kubectl context is configured on the agent."
           }
 
-          // apply manifests (either folder k8s/ or inline)
+          // Apply manifests from repo/k8s if present, else apply a small inline manifest
+          if (fileExists("${env.WORKSPACE}/k8s")) {
+            echo "Applying manifests from k8s/ directory"
             sh "kubectl apply -f k8s/ -n mlops || kubectl apply -f k8s/"
+          } else {
+            echo "k8s/ not found — applying inline manifest"
+            sh '''
+              kubectl create ns mlops --dry-run=client -o yaml | kubectl apply -f -
+              kubectl apply -f - <<'YAML'
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: mlops-app
+                namespace: mlops
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: mlops-app
+                template:
+                  metadata:
+                    labels:
+                      app: mlops-app
+                  spec:
+                    imagePullSecrets:
+                      - name: dockerhub-secret
+                    containers:
+                      - name: mlops-app
+                        image: ${DOCKERHUB_REPOSITORY}:latest
+                        ports:
+                          - containerPort: 5000
+              ---
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: mlops-service
+                namespace: mlops
+              spec:
+                type: NodePort
+                selector:
+                  app: mlops-app
+                ports:
+                  - protocol: TCP
+                    port: 5000
+                    targetPort: 5000
+                    nodePort: 30007
+              YAML
+            '''
           }
 
-          // wait for rollout and print diagnostics
+          // Wait for rollout and show diagnostics if something goes wrong
           sh '''
-            kubectl rollout status deploy/mlops-app -n mlops --timeout=120s || (kubectl describe deploy mlops-app -n mlops; kubectl get pods -n mlops -o wide; exit 1)
+            kubectl rollout status deployment/mlops-app -n mlops --timeout=120s || (kubectl describe deployment/mlops-app -n mlops; kubectl get pods -n mlops -o wide; exit 1)
             kubectl get pods -n mlops -o wide || true
           '''
         }
       }
     }
-  }
+  } // stages
 
   post {
     always {
