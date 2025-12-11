@@ -92,14 +92,16 @@ pipeline {
           sh '''
             export KUBECONFIG=$KUBECONFIG_FILE
 
-            echo "Applying namespace, service, HPA..."
+            echo "Applying Kubernetes manifests from k8s/..."
             kubectl apply -f k8s/ --recursive
 
-            echo "Updating Deployment image (OVERWRITES IMAGE_REPLACE)…"
+            echo "Forcing Deployment to use correct image..."
             kubectl set image deployment/mlops-app mlops-app=${FULL_IMAGE} -n mlops --record
 
             echo "Waiting for rollout..."
             kubectl rollout status deployment/mlops-app -n mlops --timeout=300s
+
+            echo "Deployment completed."
           '''
         }
       }
