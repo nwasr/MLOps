@@ -99,7 +99,7 @@ pipeline {
             kubectl set image deployment/mlops-app mlops-app=${FULL_IMAGE} -n mlops --record
 
             echo "Waiting for rollout..."
-            kubectl rollout status deployment/mlops-app -n mlops --timeout=300s
+            kubectl rollout status deployment/mlops-app -n mlops --timeout=20s
 
             echo "Deployment completed."
           '''
