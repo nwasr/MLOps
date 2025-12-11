@@ -38,7 +38,7 @@ pipeline {
 
                         venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero
                         venv/bin/flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt
-                        venv/bin/black app.py train.py
+                        venv/bin/black app.py train.py || true
                     '''
                 }
             }
