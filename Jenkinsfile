@@ -91,41 +91,19 @@ pipeline {
             steps {
                 script {
                     withCredentials([file(credentialsId: 'mlops-kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-
                         sh '''
-<<<<<<< HEAD
                             echo "Deploying to Kubernetes..."
-=======
-                            echo "Preparing kubeconfig..."
->>>>>>> 89a759407dcefbf6e81e10221dfdafabc01ac57d
 
-<<<<<<< HEAD
                             # Use kubeconfig directly from Jenkins secret file
                             export KUBECONFIG="$KUBECONFIG_FILE"
 
                             echo "Cluster nodes:"
-=======
-                            # create local kube directory INSIDE WORKSPACE (always writable)
-                            mkdir -p .kube
-                            cp "$KUBECONFIG_FILE" .kube/config
-                            export KUBECONFIG=$PWD/.kube/config
-
-                            echo "Testing cluster access:"
->>>>>>> 89a759407dcefbf6e81e10221dfdafabc01ac57d
                             kubectl get nodes
 
                             cp -r k8s k8s-deploy
 
-<<<<<<< HEAD
-=======
-                            # Replace placeholder with actual image tag
->>>>>>> 89a759407dcefbf6e81e10221dfdafabc01ac57d
                             sed -i "s|IMAGE_REPLACE|pep34/mlops-proj-01:${IMAGE_TAG}|g" k8s-deploy/deployment.yaml
 
-<<<<<<< HEAD
-=======
-                            echo "Applying Kubernetes manifests..."
->>>>>>> 89a759407dcefbf6e81e10221dfdafabc01ac57d
                             kubectl apply -f k8s-deploy/ --recursive
 
                             kubectl rollout status deployment/mlops-app -n mlops --timeout=120s
@@ -134,7 +112,6 @@ pipeline {
                 }
             }
         }
-
     }
 
     post {
