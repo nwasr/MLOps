@@ -30,19 +30,15 @@ pipeline {
                 script {
                     echo 'Linting Python Code...'
                     sh '''
-                        set -euo pipefail
-                        # create venv (idempotent)
-                        if [ ! -d "venv" ]; then
-                          python3 -m venv venv
-                        fi
-                        # use the venv pip
-                        venv/bin/python -m pip install --upgrade pip setuptools wheel
+                        # no pipefail used (dash-compatible)
+                        python3 -m venv venv
+
+                        venv/bin/pip install --upgrade pip
                         venv/bin/pip install -r requirements.txt
 
-                        # run linters via venv
-                        venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero || true
-                        venv/bin/flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt || true
-                        venv/bin/black app.py train.py || true
+                        venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero
+                        venv/bin/flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt
+                        venv/bin/black app.py train.py
                     '''
                 }
             }
@@ -53,14 +49,7 @@ pipeline {
                 script {
                     echo 'Testing Python Code...'
                     sh '''
-                      set -euo pipefail
-                      # ensure venv and deps (idempotent)
-                      if [ ! -d "venv" ]; then
-                        python3 -m venv venv
-                        venv/bin/python -m pip install --upgrade pip setuptools wheel
-                        venv/bin/pip install -r requirements.txt
-                      fi
-                      venv/bin/pytest -q || true
+                        venv/bin/pytest tests/
                     '''
                 }
             }
@@ -69,17 +58,13 @@ pipeline {
         stage('Trivy FS Scan') {
             steps {
                 script {
-                    echo 'Scanning filesystem with Trivy (if installed)...'
+                    echo 'Scanning filesystem with Trivy...'
                     sh '''
-                      set -euo pipefail
-                      if command -v trivy >/dev/null 2>&1; then
-                        trivy fs . \
-                          --severity HIGH,CRITICAL \
-                          --format json \
-                          --output trivy-fs-report.json || true
-                      else
-                        echo "trivy not found on agent; skipping FS scan."
-                      fi
+                        if command -v trivy >/dev/null 2>&1; then
+                            trivy fs . --severity HIGH,CRITICAL --format json --output trivy-fs-report.json
+                        else
+                            echo "Trivy not installed — skipping FS scan."
+                        fi
                     '''
                 }
             }
@@ -89,7 +74,6 @@ pipeline {
             steps {
                 script {
                     echo 'Building Docker Image...'
-                    // docker.build requires docker available on agent
                     dockerImage = docker.build("${DOCKERHUB_REPOSITORY}:latest")
                 }
             }
@@ -98,14 +82,13 @@ pipeline {
         stage('Trivy Docker Image Scan') {
             steps {
                 script {
-                    echo 'Scanning Docker Image with Trivy (if installed)...'
+                    echo 'Scanning Docker Image with Trivy...'
                     sh '''
-                      set -euo pipefail
-                      if command -v trivy >/dev/null 2>&1; then
-                        trivy image ${DOCKERHUB_REPOSITORY}:latest --format table -o trivy-image-report.json || true
-                      else
-                        echo "trivy not found on agent; skipping image scan."
-                      fi
+                        if command -v trivy >/dev/null 2>&1; then
+                            trivy image ${DOCKERHUB_REPOSITORY}:latest --format table -o trivy-image-report.json
+                        else
+                            echo "Trivy not installed — skipping image scan."
+                        fi
                     '''
                 }
             }
@@ -125,8 +108,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    echo 'Deploying to production...'
-                    // Keep this minimal — replace with your actual deploy steps
+                    echo 'Deploying to production (placeholder)...'
                 }
             }
         }
