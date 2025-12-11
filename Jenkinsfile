@@ -131,7 +131,7 @@ pipeline {
             steps {
                 script {
                     echo 'Pushing Docker Image to DockerHub...'
-                    docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}") {
+                    docker.withRegistry('', "${DOCKERHUB_CREDENTIAL_ID}") {
                         // use docker CLI to push the specific tag(s)
                         sh "docker push ${IMAGE_TAG}"
                         sh "docker push ${DOCKERHUB_REPOSITORY}:latest"
