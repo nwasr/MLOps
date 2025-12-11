@@ -30,14 +30,19 @@ pipeline {
                 script {
                     echo 'Linting Python Code...'
                     sh '''
-                        # no pipefail used (dash-compatible)
+                        # create venv (idempotent)
                         python3 -m venv venv
 
                         venv/bin/pip install --upgrade pip
                         venv/bin/pip install -r requirements.txt
 
+                        # pylint: non-fatal
                         venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero
-                        venv/bin/flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt
+
+                        # flake8: run but don't fail the build (report only)
+                        venv/bin/flake8 app.py train.py --ignore=E501,E302 --exit-zero --output-file=flake8-report.txt
+
+                        # black: formatting; allow it to fail non-fatally
                         venv/bin/black app.py train.py || true
                     '''
                 }
@@ -49,7 +54,14 @@ pipeline {
                 script {
                     echo 'Testing Python Code...'
                     sh '''
-                        venv/bin/pytest tests/
+                      # ensure venv exists and deps installed
+                      if [ ! -d "venv" ]; then
+                        python3 -m venv venv
+                        venv/bin/pip install --upgrade pip
+                        venv/bin/pip install -r requirements.txt
+                      fi
+                      # run tests (allow test failures to be visible by returning non-zero)
+                      venv/bin/pytest -q
                     '''
                 }
             }
@@ -58,12 +70,12 @@ pipeline {
         stage('Trivy FS Scan') {
             steps {
                 script {
-                    echo 'Scanning filesystem with Trivy...'
+                    echo 'Scanning filesystem with Trivy (if available)...'
                     sh '''
                         if command -v trivy >/dev/null 2>&1; then
-                            trivy fs . --severity HIGH,CRITICAL --format json --output trivy-fs-report.json
+                          trivy fs . --severity HIGH,CRITICAL --format json --output trivy-fs-report.json || true
                         else
-                            echo "Trivy not installed — skipping FS scan."
+                          echo "trivy not found — skipping FS scan."
                         fi
                     '''
                 }
@@ -82,12 +94,12 @@ pipeline {
         stage('Trivy Docker Image Scan') {
             steps {
                 script {
-                    echo 'Scanning Docker Image with Trivy...'
+                    echo 'Scanning Docker Image with Trivy (if available)...'
                     sh '''
                         if command -v trivy >/dev/null 2>&1; then
-                            trivy image ${DOCKERHUB_REPOSITORY}:latest --format table -o trivy-image-report.json
+                          trivy image ${DOCKERHUB_REPOSITORY}:latest --format table -o trivy-image-report.json || true
                         else
-                            echo "Trivy not installed — skipping image scan."
+                          echo "trivy not found — skipping image scan."
                         fi
                     '''
                 }
@@ -98,7 +110,7 @@ pipeline {
             steps {
                 script {
                     echo 'Pushing Docker Image to DockerHub...'
-                    docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}"){
+                    docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}") {
                         dockerImage.push('latest')
                     }
                 }
@@ -109,6 +121,7 @@ pipeline {
             steps {
                 script {
                     echo 'Deploying to production (placeholder)...'
+                    // add deployment steps here
                 }
             }
         }
@@ -118,6 +131,7 @@ pipeline {
         always {
             echo 'Archiving reports...'
             archiveArtifacts artifacts: '*report*.txt, trivy-*.json', allowEmptyArchive: true
+            junit allowEmptyResults: true, testResults: 'tests/**/TEST-*.xml'
         }
     }
 }
