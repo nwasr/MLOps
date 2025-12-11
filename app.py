@@ -1,6 +1,6 @@
 import pickle
 import os
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, jsonify
 
 app = Flask(__name__)
 
@@ -14,6 +14,27 @@ if not os.path.exists(MODEL_PATH):
 with open(MODEL_PATH, "rb") as f:
     model = pickle.load(f)
 
+# --------------------------
+# Health and Readiness Probes
+# --------------------------
+
+@app.route("/health")
+def health():
+    # Basic check to ensure the server is running
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/ready")
+def ready():
+    try:
+        # Minimal readiness check: model loaded?
+        if model is None:
+            return jsonify({"ready": False}), 500
+        return jsonify({"ready": True}), 200
+    except Exception as e:
+        return jsonify({"ready": False, "error": str(e)}), 500
+
+
 # Home route to display the form
 @app.route("/")
 def home():
@@ -25,11 +46,8 @@ def home():
 def predict():
     # Get the input features from the form
     features = [float(x) for x in request.form.values()]
-
-    # Make a prediction using the model
     prediction = model.predict([features])[0]
 
-    # Display the prediction on the same page
     return render_template(
         "index.html", prediction_text=f"Predicted Iris Class: {prediction}"
     )

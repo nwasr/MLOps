@@ -1,7 +1,7 @@
 pipeline {
     agent any
 
-    environment{
+    environment {
         DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'
         DOCKERHUB_REGISTRY = 'https://registry.hub.docker.com'
         DOCKERHUB_REPOSITORY = 'pep34/mlops-proj-01'
@@ -9,13 +9,15 @@ pipeline {
 
     stages {
 
+        /* -------------------------------
+           CLONE REPO
+        --------------------------------*/
         stage('Clone Repository') {
             steps {
                 script {
                     echo 'Cloning GitHub Repository...'
                     checkout scmGit(
                         branches: [[name: '*/main']],
-                        extensions: [],
                         userRemoteConfigs: [[
                             credentialsId: 'mlops-git-token',
                             url: 'https://github.com/nwasr/MLOps.git'
@@ -25,6 +27,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------
+           LINT
+        --------------------------------*/
         stage('Lint Code') {
             steps {
                 script {
@@ -42,15 +47,21 @@ pipeline {
             }
         }
 
+        /* -------------------------------
+           TEST
+        --------------------------------*/
         stage('Test Code') {
             steps {
                 script {
-                    echo 'Testing Python Code...'
+                    echo 'Running Unit Tests...' 
                     sh "venv/bin/pytest tests/"
                 }
             }
         }
 
+        /* -------------------------------
+           TRIVY FS SCAN
+        --------------------------------*/
         stage('Trivy FS Scan') {
             steps {
                 script {
@@ -65,12 +76,14 @@ pipeline {
             }
         }
 
+        /* -------------------------------
+           BUILD DOCKER
+        --------------------------------*/
         stage('Build Docker Image') {
             steps {
                 script {
                     echo 'Building Docker Image...'
 
-                    // Create unique tag for this build
                     env.GIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                     env.IMAGE_TAG = "${env.BUILD_NUMBER}-${env.GIT_SHORT}"
                     env.FULL_IMAGE = "${DOCKERHUB_REPOSITORY}:${IMAGE_TAG}"
@@ -80,61 +93,59 @@ pipeline {
             }
         }
 
+        /* -------------------------------
+           TRIVY IMAGE SCAN
+        --------------------------------*/
         stage('Trivy Docker Image Scan') {
             steps {
-                // Trivy Docker Image Scan
                 script {
                     echo 'Scanning Docker Image with Trivy...'
-                    sh "trivy image ${DOCKERHUB_REPOSITORY}:latest --format table -o trivy-image-report.json"
+                    sh "trivy image ${env.FULL_IMAGE} --format table -o trivy-image-report.json"
                 }
             }
         }
 
+        /* -------------------------------
+           PUSH TO DOCKER HUB
+        --------------------------------*/
         stage('Push Docker Image') {
             steps {
                 script {
                     echo "Pushing Docker Image to DockerHub..."
 
                     docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}") {
-
-                        // Push uniquely tagged image
                         dockerImage.push()
-
-                        // Also update latest (optional, but useful)
                         sh "docker tag ${env.FULL_IMAGE} ${DOCKERHUB_REPOSITORY}:latest"
-                        dockerImage.push("latest")
+                        dockerImage.push('latest')
                     }
                 }
             }
         }
 
-
+        /* -------------------------------
+           DEPLOY TO K8S
+        --------------------------------*/
         stage('Deploy to Kubernetes') {
             steps {
                 script {
                     echo "Deploying to Kubernetes..."
 
                     withCredentials([file(credentialsId: 'mlops-kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-
                         sh '''
-                            # Prepare kubeconfig
                             mkdir -p $HOME/.kube
                             cp "$KUBECONFIG_FILE" $HOME/.kube/config
 
-                            echo "Using kubeconfig:"
-                            kubectl config view
-
-                            # DEBUG: check cluster connectivity
+                            echo "Cluster:"
                             kubectl get nodes
 
-                            # Make a working copy of the k8s manifests
+                            # Copy manifests
                             cp -r k8s k8s-deploy
 
-                            # Replace the image tag in deployment manifest
-                            sed -i "s|pep34/mlops-proj-01:latest|pep34/mlops-proj-01:${IMAGE_TAG}|g" k8s-deploy/deployment.yaml
+                            # Replace placeholder in deployment.yaml
+                            sed -i "s|IMAGE_REPLACE|pep34/mlops-proj-01:${IMAGE_TAG}|g" k8s-deploy/deployment.yaml
 
                             echo "Applying manifests..."
-                            kubectl apply -f k8s-deploy/
+                            kubectl apply -f k8s-deploy/ --recursive
 
                             echo "Waiting for rollout..."
                             kubectl rollout status deployment/mlops-app -n mlops --timeout=120s
@@ -143,8 +154,11 @@ pipeline {
                 }
             }
         }
+    }
 
-
+    /* -------------------------------
+       POST BUILD
+    --------------------------------*/
     post {
         always {
             echo 'Archiving reports...'
