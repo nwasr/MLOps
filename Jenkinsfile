@@ -109,14 +109,41 @@ pipeline {
         }
 
 
-        stage('Deploy') {
+        stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    echo 'Deploying to production...'
+                    echo "Deploying to Kubernetes..."
+
+                    withCredentials([file(credentialsId: 'mlops-kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+
+                        sh '''
+                            # Prepare kubeconfig
+                            mkdir -p $HOME/.kube
+                            cp "$KUBECONFIG_FILE" $HOME/.kube/config
+
+                            echo "Using kubeconfig:"
+                            kubectl config view
+
+                            # DEBUG: check cluster connectivity
+                            kubectl get nodes
+
+                            # Make a working copy of the k8s manifests
+                            cp -r k8s k8s-deploy
+
+                            # Replace the image tag in deployment manifest
+                            sed -i "s|pep34/mlops-proj-01:latest|pep34/mlops-proj-01:${IMAGE_TAG}|g" k8s-deploy/deployment.yaml
+
+                            echo "Applying manifests..."
+                            kubectl apply -f k8s-deploy/
+
+                            echo "Waiting for rollout..."
+                            kubectl rollout status deployment/mlops-app -n mlops --timeout=120s
+                        '''
+                    }
                 }
             }
         }
-    }
+
 
     post {
         always {
