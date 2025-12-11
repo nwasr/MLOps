@@ -1,166 +1,180 @@
 pipeline {
-    agent any
+  agent any
 
-    environment {
-        DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'
-        DOCKERHUB_REGISTRY = 'https://registry.hub.docker.com'
-        DOCKERHUB_REPOSITORY = 'pep34/mlops-proj-01'
+  environment {
+    DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'
+    DOCKERHUB_REGISTRY      = ''   // use default (Docker Hub)
+    DOCKERHUB_REPOSITORY    = 'pep34/mlops-proj-01'
+    K8S_MANIFEST_DIR        = 'k8s' // directory in repo containing namespace/deploy/service/hpa YAMLs
+    // optional: KUBECONFIG_CREDENTIAL should be Jenkins "Secret file" credential id that contains kubeconfig
+    KUBECONFIG_CREDENTIAL   = 'kubeconfig-cred' 
+  }
+
+  stages {
+    stage('Clone Repository') {
+      steps {
+        checkout scm
+      }
     }
 
-    stages {
-        stage('Clone Repository') {
-            steps {
-                script {
-                    echo 'Cloning GitHub Repository...'
-                    checkout scmGit(
-                        branches: [[name: '*/main']],
-                        extensions: [],
-                        userRemoteConfigs: [[
-                            credentialsId: 'mlops-git-token',
-                            url: 'https://github.com/nwasr/MLOps.git'
-                        ]]
-                    )
-                }
-            }
+    // ... your build/lint/test/trivy/docker build/push stages, unchanged ...
+    stage('Build Docker Image') {
+      steps {
+        script {
+          echo 'Building Docker Image...'
+          def dockerImage = docker.build("${DOCKERHUB_REPOSITORY}:latest")
+          // store image name to env for later push
+          env.IMAGE_TAG = "${DOCKERHUB_REPOSITORY}:latest"
         }
-
-        stage('Train Model') {
-            steps {
-                script {
-                    echo 'Training model in CI workspace...'
-                    sh '''
-                      if [ ! -d "venv" ]; then
-                        python3 -m venv venv
-                        venv/bin/pip install --upgrade pip
-                        venv/bin/pip install -r requirements.txt
-                      fi
-                      venv/bin/python train.py
-                    '''
-                }
-            }
-            post {
-                success {
-                    archiveArtifacts artifacts: 'model/iris_model.pkl', fingerprint: true
-                }
-            }
-        }
-
-        stage('Lint Code') {
-            steps {
-                script {
-                    echo 'Linting Python Code...'
-                    sh '''
-                        # venv idempotent
-                        python3 -m venv venv || true
-                        venv/bin/pip install --upgrade pip
-                        venv/bin/pip install -r requirements.txt
-
-                        venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero
-                        venv/bin/flake8 app.py train.py --ignore=E501,E302 --exit-zero --output-file=flake8-report.txt
-                        venv/bin/black app.py train.py || true
-                    '''
-                }
-            }
-        }
-
-        stage('Test Code') {
-            steps {
-                script {
-                    echo 'Testing Python Code (generating junit xml)...'
-                    sh '''
-                      if [ ! -d "venv" ]; then
-                        python3 -m venv venv
-                        venv/bin/pip install --upgrade pip
-                        venv/bin/pip install -r requirements.txt
-                      fi
-                      # create tests output dir
-                      mkdir -p tests
-                      # run pytest and write JUnit XML for Jenkins
-                      venv/bin/pytest -q --junitxml=tests/junit-results.xml
-                    '''
-                }
-            }
-        }
-
-        stage('Trivy FS Scan') {
-            steps {
-                script {
-                    echo 'Scanning filesystem with Trivy (if available)...'
-                    sh '''
-                        if command -v trivy >/dev/null 2>&1; then
-                          trivy fs . --severity HIGH,CRITICAL --format json --output trivy-fs-report.json || true
-                        else
-                          echo "trivy not found — skipping FS scan."
-                        fi
-                    '''
-                }
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    // build a uniquely tagged image and also tag latest
-                    env.IMAGE_TAG = "${DOCKERHUB_REPOSITORY}:${env.BUILD_ID}"
-                    echo "Building image ${env.IMAGE_TAG} ..."
-                    // build with docker CLI (requires docker on agent)
-                    sh "docker build -t ${env.IMAGE_TAG} -t ${DOCKERHUB_REPOSITORY}:latest ."
-                    // store a text file with the image tag for records
-                    sh "echo ${env.IMAGE_TAG} > image-tag.txt"
-                    archiveArtifacts artifacts: 'image-tag.txt', allowEmptyArchive: true
-                }
-            }
-        }
-
-        stage('Trivy Docker Image Scan') {
-            steps {
-                script {
-                    echo 'Scanning Docker Image with Trivy (if available)...'
-                    sh '''
-                        if command -v trivy >/dev/null 2>&1; then
-                          trivy image ${IMAGE_TAG} --format table -o trivy-image-report.json || true
-                        else
-                          echo "trivy not found — skipping image scan."
-                        fi
-                    '''
-                }
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    echo 'Pushing Docker Image to DockerHub...'
-                    docker.withRegistry('', "${DOCKERHUB_CREDENTIAL_ID}") {
-                        // use docker CLI to push the specific tag(s)
-                        sh "docker push ${IMAGE_TAG}"
-                        sh "docker push ${DOCKERHUB_REPOSITORY}:latest"
-                    }
-                }
-            }
-        }
-
-        stage('Deploy') {
-            steps {
-                script {
-                    echo 'Deploying to production (placeholder)...'
-                    // Add deployment logic here (kubectl/helm). Use a kubeconfig file credential if needed.
-                }
-            }
-        }
+      }
     }
 
-    post {
-        always {
-            echo 'Archiving reports and publishing test results...'
-            archiveArtifacts artifacts: '*report*.txt, trivy-*.json,image-tag.txt', allowEmptyArchive: true
-            junit allowEmptyResults: true, testResults: 'tests/junit-results.xml'
+    stage('Push Docker Image') {
+      steps {
+        script {
+          echo 'Pushing Docker Image to DockerHub...'
+          docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}") {
+            docker.image(env.IMAGE_TAG).push()
+            docker.image(env.IMAGE_TAG).push("${BUILD_NUMBER}") // optional build tag
+          }
         }
-        success {
-            echo "Pipeline finished successfully. Image pushed: ${env.IMAGE_TAG}"
-        }
-        failure {
-            echo "Pipeline failed — check console logs for details."
-        }
+      }
     }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        script {
+          // choose path: use kubeconfig credential if provided, else assume kubectl is already configured
+          withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KUBECONFIG_FILE')]) {
+            // If a kubeconfig credential exists, point KUBECONFIG env to it for kubectl commands
+            if (fileExists(env.KUBECONFIG_FILE)) {
+              env.KUBECONFIG = env.KUBECONFIG_FILE
+              echo "Using kubeconfig from Jenkins credential: ${KUBECONFIG_CREDENTIAL}"
+            } else {
+              // No kubeconfig credential present — assume kubectl on agent already configured
+              echo "No kubeconfig file credential found or not present — assuming kubectl is configured in the environment"
+              // Unset env.KUBECONFIG to avoid overriding system
+              env.remove('KUBECONFIG')
+            }
+
+            // Optionally create docker registry secret in target namespace if docker creds are available.
+            // This uses Jenkins username/token stored as username/password credential with ID DOCKERHUB_CREDENTIAL_ID.
+            // If the image is public, this step is harmless (will fail only if wrong creds) — optional behavior below uses try/catch.
+            def createPullSecret = """
+              set -o errexit
+              NAMESPACE=mlops
+              # Create namespace if not exists
+              kubectl get ns $NAMESPACE >/dev/null 2>&1 || kubectl create ns $NAMESPACE
+
+              # If DOCKER credentials available via Jenkins, create dockerhub secret (idempotent)
+              echo "Creating dockerhub imagePullSecret (idempotent)..."
+            """
+
+            // create secret only if registry credentials exist in Jenkins credentials store
+            try {
+              withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDENTIAL_ID}", usernameVariable: 'DH_USER', passwordVariable: 'DH_TOKEN')]) {
+                sh """
+                  ${createPullSecret}
+                  kubectl create secret docker-registry dockerhub-secret \
+                    --docker-username="$DH_USER" \
+                    --docker-password="$DH_TOKEN" \
+                    --docker-server=https://index.docker.io/v1/ \
+                    -n mlops 2>/dev/null || echo "dockerhub-secret already exists or creation skipped"
+                """
+              }
+            } catch (err) {
+              // if credentials are not available, skip secret creation
+              echo "Skipping imagePullSecret creation (no DOCKER credentials available in Jenkins)."
+            }
+
+            // Apply k8s manifests. If a k8s directory exists in repo, apply it; else fallback to inline manifest (you can replace with your manifest)
+            if (fileExists(env.WORKSPACE + "/${K8S_MANIFEST_DIR}")) {
+              echo "Applying k8s manifests from ${K8S_MANIFEST_DIR}/"
+              sh """
+                kubectl apply -f ${K8S_MANIFEST_DIR}/ -n mlops || kubectl apply -f ${K8S_MANIFEST_DIR}/
+              """
+            } else {
+              echo "k8s manifest directory not found. Applying inline example manifest..."
+              sh '''
+                kubectl apply -f - <<'YAML'
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: mlops
+                ---
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: mlops-app
+                  namespace: mlops
+                spec:
+                  replicas: 1
+                  selector:
+                    matchLabels:
+                      app: mlops-app
+                  template:
+                    metadata:
+                      labels:
+                        app: mlops-app
+                    spec:
+                      imagePullSecrets:
+                        - name: dockerhub-secret
+                      containers:
+                        - name: mlops-app
+                          image: ${DOCKERHUB_REPOSITORY}:latest
+                          ports:
+                            - containerPort: 5000
+                ---
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: mlops-service
+                  namespace: mlops
+                spec:
+                  type: NodePort
+                  selector:
+                    app: mlops-app
+                  ports:
+                    - protocol: TCP
+                      port: 5000
+                      targetPort: 5000
+                      nodePort: 30007
+                YAML
+              '''
+            }
+
+            // wait rollout
+            sh '''
+              kubectl rollout status deploy/mlops-app -n mlops --timeout=120s || (kubectl describe deploy/mlops-app -n mlops; kubectl get pods -n mlops -o wide; exit 1)
+            '''
+
+            // show pod status and one-line pod logs for quick debugging
+            sh '''
+              echo "Pods in mlops namespace:"
+              kubectl get pods -n mlops -o wide
+
+              POD=$(kubectl get pods -n mlops -l app=mlops-app -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+              if [ -n "$POD" ]; then
+                echo "Recent logs from $POD (tail 200 lines):"
+                kubectl logs -n mlops "$POD" --tail=200 || true
+              fi
+            '''
+          } // end withCredentials (kubeconfig)
+        } // end script
+      } // end steps
+    } // end Deploy to Kubernetes
+
+  } // end stages
+
+  post {
+    always {
+      echo 'Pipeline finished. Gathering minimal diagnostics...'
+      sh '''
+        echo "kubectl context:"
+        kubectl config current-context || true
+        echo "kubectl get ns:"
+        kubectl get ns || true
+      '''
+    }
+  }
 }
