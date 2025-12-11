@@ -24,7 +24,28 @@ pipeline {
                 }
             }
         }
-
+        stage('Train Model') {
+            steps {
+                script {
+                    echo 'Training model in CI workspace...'
+                    sh '''
+                      # ensure venv exists and use it (idempotent)
+                      if [ ! -d "venv" ]; then
+                        python3 -m venv venv
+                        venv/bin/pip install --upgrade pip
+                        venv/bin/pip install -r requirements.txt
+                      fi
+                      # run training using venv python
+                      venv/bin/python train.py
+                    '''
+                }
+            }
+            post {
+                success {
+                    archiveArtifacts artifacts: 'model/iris_model.pkl', fingerprint: true
+                }
+            }
+        }
         stage('Lint Code') {
             steps {
                 script {
