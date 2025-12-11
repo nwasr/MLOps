@@ -1,14 +1,13 @@
 pipeline {
     agent any
 
-    environment{
+    environment {
         DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'
         DOCKERHUB_REGISTRY = 'https://registry.hub.docker.com'
         DOCKERHUB_REPOSITORY = 'pep34/mlops-proj-01'
     }
 
     stages {
-
         stage('Clone Repository') {
             steps {
                 script {
@@ -24,18 +23,17 @@ pipeline {
                 }
             }
         }
+
         stage('Train Model') {
             steps {
                 script {
                     echo 'Training model in CI workspace...'
                     sh '''
-                      # ensure venv exists and use it (idempotent)
                       if [ ! -d "venv" ]; then
                         python3 -m venv venv
                         venv/bin/pip install --upgrade pip
                         venv/bin/pip install -r requirements.txt
                       fi
-                      # run training using venv python
                       venv/bin/python train.py
                     '''
                 }
@@ -46,24 +44,19 @@ pipeline {
                 }
             }
         }
+
         stage('Lint Code') {
             steps {
                 script {
                     echo 'Linting Python Code...'
                     sh '''
-                        # create venv (idempotent)
-                        python3 -m venv venv
-
+                        # venv idempotent
+                        python3 -m venv venv || true
                         venv/bin/pip install --upgrade pip
                         venv/bin/pip install -r requirements.txt
 
-                        # pylint: non-fatal
                         venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero
-
-                        # flake8: run but don't fail the build (report only)
                         venv/bin/flake8 app.py train.py --ignore=E501,E302 --exit-zero --output-file=flake8-report.txt
-
-                        # black: formatting; allow it to fail non-fatally
                         venv/bin/black app.py train.py || true
                     '''
                 }
@@ -73,16 +66,17 @@ pipeline {
         stage('Test Code') {
             steps {
                 script {
-                    echo 'Testing Python Code...'
+                    echo 'Testing Python Code (generating junit xml)...'
                     sh '''
-                      # ensure venv exists and deps installed
                       if [ ! -d "venv" ]; then
                         python3 -m venv venv
                         venv/bin/pip install --upgrade pip
                         venv/bin/pip install -r requirements.txt
                       fi
-                      # run tests (allow test failures to be visible by returning non-zero)
-                      venv/bin/pytest -q
+                      # create tests output dir
+                      mkdir -p tests
+                      # run pytest and write JUnit XML for Jenkins
+                      venv/bin/pytest -q --junitxml=tests/junit-results.xml
                     '''
                 }
             }
@@ -106,8 +100,14 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo 'Building Docker Image...'
-                    dockerImage = docker.build("${DOCKERHUB_REPOSITORY}:latest")
+                    // build a uniquely tagged image and also tag latest
+                    env.IMAGE_TAG = "${DOCKERHUB_REPOSITORY}:${env.BUILD_ID}"
+                    echo "Building image ${env.IMAGE_TAG} ..."
+                    // build with docker CLI (requires docker on agent)
+                    sh "docker build -t ${env.IMAGE_TAG} -t ${DOCKERHUB_REPOSITORY}:latest ."
+                    // store a text file with the image tag for records
+                    sh "echo ${env.IMAGE_TAG} > image-tag.txt"
+                    archiveArtifacts artifacts: 'image-tag.txt', allowEmptyArchive: true
                 }
             }
         }
@@ -118,7 +118,7 @@ pipeline {
                     echo 'Scanning Docker Image with Trivy (if available)...'
                     sh '''
                         if command -v trivy >/dev/null 2>&1; then
-                          trivy image ${DOCKERHUB_REPOSITORY}:latest --format table -o trivy-image-report.json || true
+                          trivy image ${IMAGE_TAG} --format table -o trivy-image-report.json || true
                         else
                           echo "trivy not found — skipping image scan."
                         fi
@@ -132,7 +132,9 @@ pipeline {
                 script {
                     echo 'Pushing Docker Image to DockerHub...'
                     docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}") {
-                        dockerImage.push('latest')
+                        // use docker CLI to push the specific tag(s)
+                        sh "docker push ${IMAGE_TAG}"
+                        sh "docker push ${DOCKERHUB_REPOSITORY}:latest"
                     }
                 }
             }
@@ -142,7 +144,7 @@ pipeline {
             steps {
                 script {
                     echo 'Deploying to production (placeholder)...'
-                    // add deployment steps here
+                    // Add deployment logic here (kubectl/helm). Use a kubeconfig file credential if needed.
                 }
             }
         }
@@ -150,9 +152,15 @@ pipeline {
 
     post {
         always {
-            echo 'Archiving reports...'
-            archiveArtifacts artifacts: '*report*.txt, trivy-*.json', allowEmptyArchive: true
-            junit allowEmptyResults: true, testResults: 'tests/**/TEST-*.xml'
+            echo 'Archiving reports and publishing test results...'
+            archiveArtifacts artifacts: '*report*.txt, trivy-*.json,image-tag.txt', allowEmptyArchive: true
+            junit allowEmptyResults: true, testResults: 'tests/junit-results.xml'
+        }
+        success {
+            echo "Pipeline finished successfully. Image pushed: ${env.IMAGE_TAG}"
+        }
+        failure {
+            echo "Pipeline failed — check console logs for details."
         }
     }
 }
