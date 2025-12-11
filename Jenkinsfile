@@ -1,123 +1,114 @@
 pipeline {
-  agent any
+    agent any
 
-  environment {
-    DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'
-    DOCKERHUB_REGISTRY      = 'https://registry.hub.docker.com'
-    DOCKERHUB_REPOSITORY    = 'pep34/mlops-proj-01'
-    KUBECONFIG_CREDENTIAL   = 'kubeconfig-cred' // optional: secret file credential id containing kubeconfig
-  }
-
-  stages {
-    stage('Clone Repository') {
-      steps { checkout scm }
+    environment{
+        DOCKERHUB_CREDENTIAL_ID = 'mlops-jenkins-dockerhub-token'
+        DOCKERHUB_REGISTRY = 'https://registry.hub.docker.com'
+        DOCKERHUB_REPOSITORY = 'pep34/mlops-proj-01'
     }
 
-    stage('Build Docker Image') {
-      steps {
-        script {
-          echo 'Building Docker Image...'
-          def imageName = "${env.DOCKERHUB_REPOSITORY}:latest"
-          def built = docker.build(imageName)
-          env.IMAGE_TAG = imageName
-        }
-      }
-    }
+    stages {
 
-    stage('Push Docker Image') {
-      steps {
-        script {
-          echo "Pushing ${env.IMAGE_TAG} to Docker Hub..."
-          docker.withRegistry("${env.DOCKERHUB_REGISTRY}", "${env.DOCKERHUB_CREDENTIAL_ID}") {
-            docker.image(env.IMAGE_TAG).push()
-            docker.image(env.IMAGE_TAG).push("${env.BUILD_NUMBER}")
-          }
-        }
-      }
-    }
-
-    stage('Deploy to Kubernetes') {
-      steps {
-        script {
-          // If you have a kubeconfig stored as a Jenkins "Secret file" credential,
-          // set KUBECONFIG_CREDENTIAL to its id. We'll use it if available.
-          try {
-            withCredentials([file(credentialsId: "${env.KUBECONFIG_CREDENTIAL}", variable: 'KUBECONFIG_FILE')]) {
-              if (fileExists(env.KUBECONFIG_FILE)) {
-                env.KUBECONFIG = env.KUBECONFIG_FILE
-                echo "Using kubeconfig from Jenkins credential ${env.KUBECONFIG_CREDENTIAL}"
-              } else {
-                echo "kubeconfig credential not found on agent; assuming kubectl already configured."
-              }
+        stage('Clone Repository') {
+            steps {
+                script {
+                    echo 'Cloning GitHub Repository...'
+                    checkout scmGit(
+                        branches: [[name: '*/main']],
+                        extensions: [],
+                        userRemoteConfigs: [[
+                            credentialsId: 'mlops-git-token',
+                            url: 'https://github.com/nwasr/MLOps.git'
+                        ]]
+                    )
+                }
             }
-          } catch (e) {
-            echo "No kubeconfig credential bound (KUBECONFIG_CREDENTIAL). Assuming kubectl context is configured on the agent."
-          }
-
-          // Apply manifests from repo/k8s if present, else apply a small inline manifest
-          if (fileExists("${env.WORKSPACE}/k8s")) {
-            echo "Applying manifests from k8s/ directory"
-            sh "kubectl apply -f k8s/ -n mlops || kubectl apply -f k8s/"
-          } else {
-            echo "k8s/ not found — applying inline manifest"
-            sh '''
-              kubectl create ns mlops --dry-run=client -o yaml | kubectl apply -f -
-              kubectl apply -f - <<'YAML'
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: mlops-app
-                namespace: mlops
-              spec:
-                replicas: 1
-                selector:
-                  matchLabels:
-                    app: mlops-app
-                template:
-                  metadata:
-                    labels:
-                      app: mlops-app
-                  spec:
-                    imagePullSecrets:
-                      - name: dockerhub-secret
-                    containers:
-                      - name: mlops-app
-                        image: ${DOCKERHUB_REPOSITORY}:latest
-                        ports:
-                          - containerPort: 5000
-              ---
-              apiVersion: v1
-              kind: Service
-              metadata:
-                name: mlops-service
-                namespace: mlops
-              spec:
-                type: NodePort
-                selector:
-                  app: mlops-app
-                ports:
-                  - protocol: TCP
-                    port: 5000
-                    targetPort: 5000
-                    nodePort: 30007
-              YAML
-            '''
-          }
-
-          // Wait for rollout and show diagnostics if something goes wrong
-          sh '''
-            kubectl rollout status deployment/mlops-app -n mlops --timeout=120s || (kubectl describe deployment/mlops-app -n mlops; kubectl get pods -n mlops -o wide; exit 1)
-            kubectl get pods -n mlops -o wide || true
-          '''
         }
-      }
-    }
-  } // stages
 
-  post {
-    always {
-      echo 'Pipeline finished.'
-      sh 'kubectl get ns || true'
+        stage('Lint Code') {
+            steps {
+                script {
+                    echo 'Linting Python Code...'
+                    sh """
+                        python3 -m venv venv
+                        venv/bin/pip install --upgrade pip
+                        venv/bin/pip install -r requirements.txt
+
+                        venv/bin/pylint app.py train.py --output=pylint-report.txt --exit-zero
+                        venv/bin/flake8 app.py train.py --ignore=E501,E302 --output-file=flake8-report.txt
+                        venv/bin/black app.py train.py
+                    """
+                }
+            }
+        }
+
+        stage('Test Code') {
+            steps {
+                script {
+                    echo 'Testing Python Code...'
+                    sh "venv/bin/pytest tests/"
+                }
+            }
+        }
+
+        stage('Trivy FS Scan') {
+            steps {
+                script {
+                    echo 'Scanning filesystem with Trivy...'
+                    sh """
+                        trivy fs . \
+                          --severity HIGH,CRITICAL \
+                          --format json \
+                          --output trivy-fs-report.json
+                    """
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo 'Building Docker Image...'
+                    dockerImage = docker.build("${DOCKERHUB_REPOSITORY}:latest")
+                }
+            }
+        }
+
+        stage('Trivy Docker Image Scan') {
+            steps {
+                // Trivy Docker Image Scan
+                script {
+                    echo 'Scanning Docker Image with Trivy...'
+                    sh "trivy image ${DOCKERHUB_REPOSITORY}:latest --format table -o trivy-image-report.json"
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                // Push Docker Image to DockerHub
+                script {
+                    echo 'Pushing Docker Image to DockerHub...'
+                    docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}"){
+                        dockerImage.push('latest')
+                    }
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                script {
+                    echo 'Deploying to production...'
+                }
+            }
+        }
     }
-  }
+
+    post {
+        always {
+            echo 'Archiving reports...'
+            archiveArtifacts artifacts: '*report*.txt, trivy-*.json', allowEmptyArchive: true
+        }
+    }
 }

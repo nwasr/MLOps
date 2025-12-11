@@ -4,7 +4,7 @@ metadata:
   name: mlops-app
   namespace: mlops
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: mlops-app
@@ -19,19 +19,3 @@ spec:
           ports:
             - containerPort: 5000
           imagePullPolicy: Always
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
