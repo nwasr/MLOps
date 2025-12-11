@@ -3,28 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Iris Prediction</title>
+    <title>Iris Predictor 9000 🌸</title>
+
+    <style>
+        body {
+            background-color: #111;
+            color: #00ff55;
+            font-family: "Courier New", Courier, monospace;
+            padding: 20px;
+            text-align: center;  /* CENTER EVERYTHING */
+        }
+
+        .ascii-box {
+            border: 2px solid #00ff55;
+            padding: 20px;
+            display: inline-block;
+            margin-bottom: 30px;
+            white-space: pre;
+            font-size: 14px;
+            text-align: left; /* Keep ASCII aligned while the block is centered */
+        }
+
+        .form-wrapper {
+            display: inline-block;
+            text-align: left; /* Align labels + fields nicely */
+            margin-top: 20px;
+        }
+
+        label {
+            display: inline-block;
+            width: 140px;
+        }
+
+        input {
+            background: #000;
+            border: 1px solid #00ff55;
+            color: #00ff55;
+            padding: 5px;
+            width: 160px;
+        }
+
+        input[type="submit"] {
+            margin-top: 15px;
+            width: auto;
+            cursor: pointer;
+        }
+
+        .prediction {
+            margin-top: 30px;
+            font-size: 20px;
+            color: #00eaff;
+        }
+    </style>
 </head>
 <body>
-    <h1>Predict the Iris Flower Class</h1>
+
+<pre class="ascii-box">
+   ██████╗ ██╗███████╗██████╗      ██████╗ ███████╗██╗  ██╗████████╗ ██████╗ ██╗  ██╗
+   ██╔══██╗██║██╔════╝██╔══██╗    ██╔════╝ ██╔════╝██║  ██║╚══██╔══╝██╔═══██╗██║ ██╔╝
+   ██████╔╝██║█████╗  ██████╔╝    ██║  ███╗█████╗  ███████║   ██║   ██║   ██║█████╔╝ 
+   ██╔══██╗██║██╔══╝  ██╔══██╗    ██║   ██║██╔══╝  ██╔══██║   ██║   ██║   ██║██╔═██╗ 
+   ██║  ██║██║███████╗██║  ██║    ╚██████╔╝███████╗██║  ██║   ██║   ╚██████╔╝██║  ██╗
+   ╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═╝     ╚═════╝ ╚══════╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝
+
+                    🌸 *THE IRIS PREDICTOR 9000* 🌸
+ ======================================================================
+ |      "Enter flower stats and witness botanical destiny!"            |
+ ======================================================================
+</pre>
+
+<div class="form-wrapper">
     <form action="/predict" method="POST">
-        <label for="sepal_length">Sepal Length:</label>
-        <input type="text" id="sepal_length" name="sepal_length" required><br>
+        <label>Sepal Length:</label> <input type="text" name="sepal_length" required><br><br>
+        <label>Sepal Width:</label> <input type="text" name="sepal_width" required><br><br>
+        <label>Petal Length:</label> <input type="text" name="petal_length" required><br><br>
+        <label>Petal Width:</label> <input type="text" name="petal_width" required><br><br>
 
-        <label for="sepal_width">Sepal Width:</label>
-        <input type="text" id="sepal_width" name="sepal_width" required><br>
-
-        <label for="petal_length">Petal Length:</label>
-        <input type="text" id="petal_length" name="petal_length" required><br>
-
-        <label for="petal_width">Petal Width:</label>
-        <input type="text" id="petal_width" name="petal_width" required><br>
-
-        <input type="submit" value="Predict">
+        <input type="submit" value="ENGAGE PREDICTION 🚀">
     </form>
+</div>
 
-    {% if prediction_text %}
-        <h3>{{ prediction_text }}</h3>
-    {% endif %}
+{% if prediction_text %}
+<div class="prediction">
+<pre>
+🔮 *** BOTANICAL PROPHECY REVEALED *** 🔮
+
+{{ prediction_text }}
+</pre>
+</div>
+{% endif %}
+
 </body>
 </html>
