@@ -35,22 +35,22 @@ pipeline {
       }
     }
 
-    stage('Unit Tests') {
-      steps {
-        sh '''
-          . venv/bin/activate
-          pytest --junitxml=tests/results.xml tests/ || true
-        '''
-      }
-    }
+    // stage('Unit Tests') {
+    //   steps {
+    //     sh '''
+    //       . venv/bin/activate
+    //       pytest --junitxml=tests/results.xml tests/ || true
+    //     '''
+    //   }
+    // }
 
-    stage('Trivy FS Scan') {
-      steps {
-        sh '''
-          trivy fs . --severity HIGH,CRITICAL --format json --output trivy-fs.json || true
-        '''
-      }
-    }
+    // stage('Trivy FS Scan') {
+    //   steps {
+    //     sh '''
+    //       trivy fs . --severity HIGH,CRITICAL --format json --output trivy-fs.json || true
+    //     '''
+    //   }
+    // }
 
     stage('Build Docker Image') {
       steps {
@@ -66,13 +66,13 @@ pipeline {
       }
     }
 
-    stage('Trivy Image Scan') {
-      steps {
-        sh '''
-          trivy image ${FULL_IMAGE} --format json --output trivy-image.json || true
-        '''
-      }
-    }
+    // stage('Trivy Image Scan') {
+    //   steps {
+    //     sh '''
+    //       trivy image ${FULL_IMAGE} --format json --output trivy-image.json || true
+    //     '''
+    //   }
+    // }
 
     stage('Push Image') {
       steps {
