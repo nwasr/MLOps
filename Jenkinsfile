@@ -131,20 +131,25 @@ pipeline {
                     echo "Deploying to Kubernetes..."
 
                     withCredentials([file(credentialsId: 'mlops-kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-                        sh '''
-                            mkdir -p $HOME/.kube
-                            cp "$KUBECONFIG_FILE" $HOME/.kube/config
 
-                            echo "Cluster:"
+                        sh '''
+                            echo "Preparing kubeconfig..."
+
+                            # create local kube directory INSIDE WORKSPACE (always writable)
+                            mkdir -p .kube
+                            cp "$KUBECONFIG_FILE" .kube/config
+                            export KUBECONFIG=$PWD/.kube/config
+
+                            echo "Testing cluster access:"
                             kubectl get nodes
 
                             # Copy manifests
                             cp -r k8s k8s-deploy
 
-                            # Replace placeholder in deployment.yaml
+                            # Replace placeholder with actual image tag
                             sed -i "s|IMAGE_REPLACE|pep34/mlops-proj-01:${IMAGE_TAG}|g" k8s-deploy/deployment.yaml
 
-                            echo "Applying manifests..."
+                            echo "Applying Kubernetes manifests..."
                             kubectl apply -f k8s-deploy/ --recursive
 
                             echo "Waiting for rollout..."
@@ -154,6 +159,7 @@ pipeline {
                 }
             }
         }
+
     }
 
     /* -------------------------------
