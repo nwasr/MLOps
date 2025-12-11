@@ -69,7 +69,13 @@ pipeline {
             steps {
                 script {
                     echo 'Building Docker Image...'
-                    dockerImage = docker.build("${DOCKERHUB_REPOSITORY}:latest")
+
+                    // Create unique tag for this build
+                    env.GIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    env.IMAGE_TAG = "${env.BUILD_NUMBER}-${env.GIT_SHORT}"
+                    env.FULL_IMAGE = "${DOCKERHUB_REPOSITORY}:${IMAGE_TAG}"
+
+                    dockerImage = docker.build(env.FULL_IMAGE)
                 }
             }
         }
@@ -86,15 +92,22 @@ pipeline {
 
         stage('Push Docker Image') {
             steps {
-                // Push Docker Image to DockerHub
                 script {
-                    echo 'Pushing Docker Image to DockerHub...'
-                    docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}"){
-                        dockerImage.push('latest')
+                    echo "Pushing Docker Image to DockerHub..."
+
+                    docker.withRegistry("${DOCKERHUB_REGISTRY}", "${DOCKERHUB_CREDENTIAL_ID}") {
+
+                        // Push uniquely tagged image
+                        dockerImage.push()
+
+                        // Also update latest (optional, but useful)
+                        sh "docker tag ${env.FULL_IMAGE} ${DOCKERHUB_REPOSITORY}:latest"
+                        dockerImage.push("latest")
                     }
                 }
             }
         }
+
 
         stage('Deploy') {
             steps {
