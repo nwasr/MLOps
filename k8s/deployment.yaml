@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlops-app
+  namespace: mlops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlops-app
+  template:
+    metadata:
+      labels:
+        app: mlops-app
+    spec:
+      containers:
+        - name: mlops-app
+          image: pep34/mlops-proj-01:latest
+          ports:
+            - containerPort: 5000
+          imagePullPolicy: Always
