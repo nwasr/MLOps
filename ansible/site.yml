@@ -1,0 +1,42 @@
+---
+- name: Minimal deploy mlops-app (local)
+  hosts: mlops
+  become: true
+  vars:
+    image: "pep34/mlops-proj-01:latest"   # override with -e "image=pep34/mlops-proj-01:TAG"
+    container_name: "mlops-app"
+    host_port: 5000
+    container_port: 5000
+
+  tasks:
+    - name: Pull image
+      shell: docker pull "{{ image }}"
+      register: pull
+      failed_when: pull.rc != 0 and 'not found' not in pull.stderr
+
+    - name: Stop and remove existing container (if present)
+      shell: |
+        if docker ps -a --format '{{'{{'}}.Names{{'}}'}}' | grep -x "{{ container_name }}"; then
+          docker rm -f "{{ container_name }}"
+        else
+          echo "no existing container"
+        fi
+      args:
+        warn: false
+
+    - name: Run container
+      shell: >
+        docker run -d
+        --name "{{ container_name }}"
+        --restart unless-stopped
+        -p {{ host_port }}:{{ container_port }}
+        -e FLASK_ENV=production
+        "{{ image }}"
+      args:
+        warn: false
+
+    - name: Wait for service to be up
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ host_port }}"
+        timeout: 30
