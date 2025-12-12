@@ -108,7 +108,7 @@ pipeline {
           kubectl get pods -n mlops
           kubectl get svc -n mlops
           
-          echo "✅ Deployment completed successfully!"
+          echo "Deployment completed successfully!"
         '''
       }
     }
