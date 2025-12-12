@@ -12,7 +12,6 @@ pipeline {
   }
 
   options {
-    ansiColor('xterm')
     timestamps()
     timeout(time: 90, unit: 'MINUTES')
   }
