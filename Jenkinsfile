@@ -88,26 +88,26 @@ pipeline {
 
     stage('Deploy to Kubernetes') {
       steps {
-        withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL_ID}", variable: 'KUBECONFIG_FILE')]) {
-          sh '''
-            export KUBECONFIG=$KUBECONFIG_FILE
-
-            echo "Applying Kubernetes manifests from k8s/..."
-            kubectl apply -f k8s/ --recursive
-
-            echo "Forcing Deployment to use correct image..."
-            kubectl set image deployment/mlops-app mlops-app=${FULL_IMAGE} -n mlops --record
-
-            echo "Waiting for rollout..."
-            kubectl rollout status deployment/mlops-app -n mlops --timeout=20s
-
-            echo "Deployment completed."
-          '''
-        }
+        sh '''
+          # Use the default kubeconfig (no credentials needed if Jenkins is on same machine)
+          export KUBECONFIG=~/.kube/config
+          
+          echo "Testing cluster connectivity..."
+          kubectl cluster-info
+          
+          echo "Applying Kubernetes manifests from k8s/..."
+          kubectl apply -f k8s/ --recursive
+          
+          echo "Forcing Deployment to use correct image..."
+          kubectl set image deployment/mlops-app mlops-app=${FULL_IMAGE} -n mlops --record
+          
+          echo "Waiting for rollout..."
+          kubectl rollout status deployment/mlops-app -n mlops --timeout=300s
+          
+          echo "Deployment completed."
+        '''
       }
-    }
-  }
-
+}
   post {
     always {
       archiveArtifacts artifacts: '*.txt, *.json, tests/**/*.xml', allowEmptyArchive: true
