@@ -86,32 +86,35 @@ pipeline {
     }
 
     stage('Deploy to Kubernetes') {
-  steps {
-    sh '''
-      # Use local kubeconfig - no credentials needed!
-      export KUBECONFIG=/var/lib/jenkins/.kube/config
-      
-      echo "=== Testing Cluster Connectivity ==="
-      kubectl cluster-info
-      kubectl get nodes
-      
-      echo "=== Applying Kubernetes Manifests ==="
-      kubectl apply -f k8s/ --recursive
-      
-      echo "=== Updating Deployment Image ==="
-      kubectl set image deployment/mlops-app mlops-app=${FULL_IMAGE} -n mlops --record
-      
-      echo "=== Waiting for Rollout ==="
-      kubectl rollout status deployment/mlops-app -n mlops --timeout=300s
-      
-      echo "=== Deployment Status ==="
-      kubectl get pods -n mlops
-      kubectl get svc -n mlops
-      
-      echo "✅ Deployment completed successfully!"
-    '''
-  }
-}
+      steps {
+        sh '''
+          # Use local kubeconfig - no credentials needed!
+          export KUBECONFIG=/var/lib/jenkins/.kube/config
+          
+          echo "=== Testing Cluster Connectivity ==="
+          kubectl cluster-info
+          kubectl get nodes
+          
+          echo "=== Applying Kubernetes Manifests ==="
+          kubectl apply -f k8s/ --recursive
+          
+          echo "=== Updating Deployment Image ==="
+          kubectl set image deployment/mlops-app mlops-app=${FULL_IMAGE} -n mlops --record
+          
+          echo "=== Waiting for Rollout ==="
+          kubectl rollout status deployment/mlops-app -n mlops --timeout=300s
+          
+          echo "=== Deployment Status ==="
+          kubectl get pods -n mlops
+          kubectl get svc -n mlops
+          
+          echo "✅ Deployment completed successfully!"
+        '''
+      }
+    }
+
+  }  // <-- This closing brace for 'stages' was missing!
+
   post {
     always {
       archiveArtifacts artifacts: '*.txt, *.json, tests/**/*.xml', allowEmptyArchive: true
