@@ -1,0 +1,25 @@
+# Python cache & virtual env
+__pycache__/
+*.pyc
+venv/
+.pytest_cache/
+
+# Git & local configs
+.git/
+.kube/
+
+# Tests & CI artifacts
+tests/
+*.txt
+*.json
+*.html
+trivy-*
+pylint-report.txt
+flake8-report.txt
+
+# Kubernetes manifests 
+k8s/
+k8s-deploy/
+
+# Jenkins files
+Jenkinsfile
