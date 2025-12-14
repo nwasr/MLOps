@@ -1,0 +1,17 @@
+- name: Check Docker installation
+  command: docker --version
+  register: docker_out
+  ignore_errors: true
+
+- name: Print Docker version
+  debug:
+    msg: "{{ docker_out.stdout | default('Docker not installed') }}"
+
+- name: Check kubectl installation
+  command: kubectl version --client
+  register: kubectl_out
+  ignore_errors: true
+
+- name: Print kubectl version
+  debug:
+    msg: "{{ kubectl_out.stdout | default('kubectl not installed') }}"

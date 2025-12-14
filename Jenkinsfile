@@ -9,6 +9,7 @@ pipeline {
 
   stages {
 
+
     stage('Clone Repository') {
       steps {
         checkout scmGit(
@@ -20,6 +21,16 @@ pipeline {
         )
       }
     }
+
+    stage('Ansible Environment Validation') {
+      steps {
+        sh '''
+          ansible --version
+          ansible-playbook -i ansible/inventory.ini ansible/site.yml
+        '''
+      }
+    }
+
 
     stage('Setup & Lint') {
       steps {
