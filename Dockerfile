@@ -1,7 +1,7 @@
 # Use a lightweight Python image
 FROM python:slim
 
-# Set environment variables to prevent Python from writing .pyc files & Ensure Python output is not buffered
+# Don't bake .pyc files to image
 # This reduces the docker image size further
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
