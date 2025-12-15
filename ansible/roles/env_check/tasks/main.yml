@@ -1,17 +1,29 @@
 - name: Check Docker installation
   command: docker --version
   register: docker_out
-  ignore_errors: true
+  changed_when: false
 
-- name: Print Docker version
-  debug:
-    msg: "{{ docker_out.stdout | default('Docker not installed') }}"
+- name: Fail if Docker is not installed
+  fail:
+    msg: "Docker is required but not installed on the Jenkins agent"
+  when: docker_out.rc != 0
+
 
 - name: Check kubectl installation
   command: kubectl version --client
   register: kubectl_out
-  ignore_errors: true
+  changed_when: false
+
+- name: Fail if kubectl is not installed
+  fail:
+    msg: "kubectl is required but not installed on the Jenkins agent"
+  when: kubectl_out.rc != 0
+
+
+- name: Print Docker version
+  debug:
+    msg: "{{ docker_out.stdout }}"
 
 - name: Print kubectl version
   debug:
-    msg: "{{ kubectl_out.stdout | default('kubectl not installed') }}"
+    msg: "{{ kubectl_out.stdout }}"

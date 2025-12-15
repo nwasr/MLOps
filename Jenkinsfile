@@ -99,7 +99,6 @@ pipeline {
     stage('Deploy to Kubernetes') {
       steps {
         sh '''
-          # Use local kubeconfig - no credentials needed!
           export KUBECONFIG=/var/lib/jenkins/.kube/config
           
           echo "=== Testing Cluster Connectivity ==="
