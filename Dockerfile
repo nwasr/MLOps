@@ -1,10 +1,10 @@
 # Use a lightweight Python image
 FROM python:slim
 
-# Set environment variables to prevent Python from writing .pyc files & Ensure Python output is not buffered
-# This reduces the docker image size further
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# # Set environment variables to prevent Python from writing .pyc files & Ensure Python output is not buffered
+# # This reduces the docker image size further
+# ENV PYTHONDONTWRITEBYTECODE=1 \
+#     PYTHONUNBUFFERED=1
 
 # Set the working directory
 WORKDIR /app
